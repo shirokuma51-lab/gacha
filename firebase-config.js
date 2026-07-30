@@ -25,13 +25,24 @@ const firebaseConfig = {
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
   getFirestore, collection, query, where, orderBy, limit,
-  onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp
+  onSnapshot, addDoc, doc, setDoc, getDoc, updateDoc, deleteDoc,
+  serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import {
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+// 管理画面(admin.html)用のFirebase Authentication。
+// 管理者アカウントはFirebaseコンソール →「Authentication」→「Sign-in method」で
+// 「メール/パスワード」を有効化した上で、「Users」タブから手動で追加してください
+// （このシステムには新規登録UIはありません＝管理者を増やすのはコンソール操作のみ）。
+const auth = getAuth(app);
 
 export {
   db, collection, query, where, orderBy, limit,
-  onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp
+  onSnapshot, addDoc, doc, setDoc, getDoc, updateDoc, deleteDoc,
+  serverTimestamp, writeBatch,
+  auth, signInWithEmailAndPassword, signOut, onAuthStateChanged
 };

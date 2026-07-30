@@ -3,18 +3,15 @@ rules_version = '2';
 // ============================================================================
 // firestore.rules
 // ----------------------------------------------------------------------------
-// 【重要・現状の制限について】
-// このシステムはまだ「管理画面（Firebase Authでログインした管理者専用）」を
-// 実装していません。そのため、現段階では「抽選結果の反映(drawn更新)」も
-// 配信画面(index.html)自身が誰でも実行できる形になっており、下記ルールは
-// それに合わせた“開発中の暫定ルール”です。
+// 管理画面(admin.html / Firebase Authログイン)を実装したため、
+// 抽選結果の反映(drawn更新)・投稿の削除・レイアウト/画像設定の変更は
+// すべて「ログイン済みの管理者」のみが実行できるように締めています。
 //
-// 管理画面を実装したら、以下のように締める想定です：
-//   - update / delete は request.auth != null （管理者ログイン済み）のみ許可
-//   - create（投稿）は今のまま誰でも可能のまま維持（視聴者はログイン不要のため）
+// 配信画面(index.html)・投稿画面(post.html)は非ログインのままで、
+// 閲覧(read)と、視聴者投稿(create)のみ引き続き誰でも可能です。
 //
 // Firebaseコンソール → Firestore Database → ルール タブに、このファイルの
-// 内容を貼り付けてください。
+// 内容を貼り付けて「公開」してください。
 // ============================================================================
 
 service cloud.firestore {
@@ -34,15 +31,24 @@ service cloud.firestore {
         request.resource.data.color in ['gold', 'silver', 'bronze'] &&
         request.resource.data.drawn == false;
 
-      // 更新：本来は管理者のみに絞るべき項目。現状は暫定的に drawn への
-      // 変更のみ許可（他のフィールドは書き換え不可）。
-      allow update: if
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['drawn']) &&
-        request.resource.data.drawn == true;
+      // 更新：抽選結果の反映(drawn:true)。管理画面からログイン済みの管理者のみ実行可能。
+      allow update: if request.auth != null;
 
-      // 削除：50件超過分のFIFOクリーンアップ用（暫定・誰でも可）。
-      // 本来はCloud Functionsか管理者操作に置き換えるのが望ましい。
-      allow delete: if true;
+      // 削除：抽選済み投稿の整理・50件超過分のFIFO削除。管理者のみ実行可能。
+      allow delete: if request.auth != null;
+    }
+
+    // 抽選イベント・リセット指示など、管理画面→配信画面への「合図」に使う。
+    // 配信画面(index.html)はここをリアルタイム購読して演出を再生する。
+    match /gacha_state/{stateId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // レイアウト設定・登録画像（本体/ハンドル等）。管理画面から保存する。
+    match /gacha_settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null;
     }
   }
 }
