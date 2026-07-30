@@ -537,17 +537,24 @@ body.show-grid{
      各カプセルは実際の投稿1件に対応し、視聴者が投稿画面で選んだ色
      （金/銀/銅）がそのまま反映される。 */
   const CapsuleLayer = {
-    balls: new Map(),    // postId -> {el, x, y, vx, vy, r}
+    balls: new Map(),    // postId -> {el, x, y, z, vx, vy, r}
     GRAVITY: 0.55,
     BOUNCE: 0.32,
     FRICTION: 0.985,
     running: false,
 
+    // カプセルは色(金/銀/銅)に関わらず全て同じ大きさにする（統一・大きめ）。
+    CAPSULE_RADIUS_RATIO: 0.125,
+    // 奥行き(z: 0=手前/1=奥)に応じて縮小・斜めにずらすことで立体的な積み重なりに見せる。
+    DEPTH_SCALE_MIN: 0.66,
+    DEPTH_SKEW_X: 0.17,
+    DEPTH_SKEW_Y: 0.11,
+
     spawnFor(id, colorHex){
       const rect = capsuleArea.getBoundingClientRect();
       if (rect.width < 4) { requestAnimationFrame(() => this.spawnFor(id, colorHex)); return; }
       if (this.balls.has(id)) return;
-      const r = rect.width * (0.055 + Math.random() * 0.035);
+      const r = rect.width * this.CAPSULE_RADIUS_RATIO; // 色によらず全カプセル共通サイズ（均等化）
       const el = document.createElement('div');
       el.className = 'mix-capsule';
       el.style.width = el.style.height = (r * 2) + 'px';
@@ -556,6 +563,7 @@ body.show-grid{
       requestAnimationFrame(() => el.classList.add('in'));
       this.balls.set(id, {
         el, r,
+        z: Math.random(),                 // 奥行き。大きいほど「奥」＝小さく・斜め上にずれて見える
         x: r + Math.random() * Math.max(1, rect.width - r * 2),
         y: -r * 2 - Math.random() * 60,   // 画面上方から落ちてくる＝重力で入ってくる演出
         vx: (Math.random() - 0.5) * 1.6,
@@ -616,7 +624,14 @@ body.show-grid{
       let maxSpeed = 0;
       for (const b of balls){
         b.vx *= this.FRICTION;
-        b.el.style.transform = `translate(${b.x - b.r}px, ${b.y - b.r}px)`;
+        // 衝突判定自体は共通サイズ(r)のまま平面(x,y)で行い、描画だけを奥行き(z)分
+        // 縮小・斜めにずらす（前後にも積み重なって見える立体感を出す）。
+        const scale = 1 - b.z * (1 - this.DEPTH_SCALE_MIN);
+        const dx = b.z * W * this.DEPTH_SKEW_X;
+        const dy = -b.z * H * this.DEPTH_SKEW_Y;
+        b.el.style.transform = `translate(${b.x - b.r + dx}px, ${b.y - b.r + dy}px) scale(${scale})`;
+        b.el.style.zIndex = String(Math.round((1 - b.z) * 1000)); // 手前(z小)ほど前面に描画→確実に見える
+        b.el.style.opacity = String(1 - b.z * 0.10);
         maxSpeed = Math.max(maxSpeed, Math.abs(b.vx), Math.abs(b.vy));
       }
       if (maxSpeed > 0.06){
