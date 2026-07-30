@@ -3,12 +3,13 @@ rules_version = '2';
 // ============================================================================
 // firestore.rules
 // ----------------------------------------------------------------------------
-// 管理画面(admin.html / Firebase Authログイン)を実装したため、
-// 抽選結果の反映(drawn更新)・投稿の削除・レイアウト/画像設定の変更は
-// すべて「ログイン済みの管理者」のみが実行できるように締めています。
+// 抽選(drawn:trueへの更新)は配信画面(index.html)自身が、ログイン不要で
+// 実行できるようにしています。ただし「drawn を false → true にするだけ」の
+// 更新に限定しているため、投稿内容の書き換えや抽選の取り消しはできません。
 //
-// 配信画面(index.html)・投稿画面(post.html)は非ログインのままで、
-// 閲覧(read)と、視聴者投稿(create)のみ引き続き誰でも可能です。
+// それ以外（投稿の削除・50件超過分の整理・レイアウト/画像設定の保存・
+// 配信画面のリセット）は、管理画面(admin.html)からログイン済みの
+// 管理者のみが実行できます。
 //
 // Firebaseコンソール → Firestore Database → ルール タブに、このファイルの
 // 内容を貼り付けて「公開」してください。
@@ -19,7 +20,7 @@ service cloud.firestore {
 
     match /gacha_posts/{postId} {
 
-      // 読み取り：配信画面がカプセルの中身を表示するために必要。誰でも閲覧可。
+      // 読み取り：配信画面・管理画面がカプセルの中身を表示するために必要。誰でも閲覧可。
       allow read: if true;
 
       // 作成：視聴者の投稿（ログイン不要）。項目の型と値を検証する。
@@ -31,18 +32,27 @@ service cloud.firestore {
         request.resource.data.color in ['gold', 'silver', 'bronze'] &&
         request.resource.data.drawn == false;
 
-      // 更新：抽選結果の反映(drawn:true)。管理画面からログイン済みの管理者のみ実行可能。
-      allow update: if request.auth != null;
+      // 更新：
+      //  ・ログイン済みの管理者は自由に更新可能（管理画面からの救済/訂正用）。
+      //  ・非ログイン（配信画面）は「drawn を false→true にする」更新のみ許可。
+      //    これにより配信画面は自分自身で抽選を実行できるが、他の項目の
+      //    書き換えや抽選の取り消しはできない。
+      allow update: if request.auth != null || (
+        resource.data.drawn == false &&
+        request.resource.data.drawn == true &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['drawn'])
+      );
 
-      // 削除：抽選済み投稿の整理・50件超過分のFIFO削除。管理者のみ実行可能。
+      // 削除：投稿の整理・50件超過分のFIFO削除。管理者のみ実行可能。
       allow delete: if request.auth != null;
     }
 
-    // 抽選イベント・リセット指示など、管理画面→配信画面への「合図」に使う。
-    // 配信画面(index.html)はここをリアルタイム購読して演出を再生する。
+    // 抽選イベント・リセット指示など、画面間の「合図」に使う。
     match /gacha_state/{stateId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      // latest_draw：配信画面が抽選のたびに書き込む（管理画面での確認用）ため非ログインでも許可。
+      // reset_event：配信画面のリセットは管理者のみ実行可能。
+      allow write: if request.auth != null || stateId == 'latest_draw';
     }
 
     // レイアウト設定・登録画像（本体/ハンドル等）。管理画面から保存する。

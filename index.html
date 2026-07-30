@@ -299,13 +299,13 @@ body.show-grid{
 <button id="panelToggle" title="設定パネル">⚙</button>
 <div id="panel">
   <h1>設定パネル</h1>
-  <p class="note">これは配信中は非表示にする想定の調整用UIです。抽選の実行・配信画面のリセット・画像登録・レイアウト保存は <b>admin.html（管理画面・Firebase Authログイン）</b>から行います。ここでのファイル選択やスライダー操作はその場限りのプレビューで、保存はされません（保存された内容は自動的にここへ反映されます）。</p>
+  <p class="note">これは配信中は非表示にする想定の調整用UIです。抽選は<b>この画面の本体を2回クリック</b>（1回目で中央に拡大、2回目で確定・抽選）して実行します。投稿の削除・配信画面のリセット・画像登録・レイアウト保存は <b>admin.html（管理画面・Firebase Authログイン）</b>から行います。ここでのファイル選択やスライダー操作はその場限りのプレビューで、保存はされません（保存された内容は自動的にここへ反映されます）。</p>
 
   <section>
     <label>Firebase接続状況</label>
     <div id="connState" style="font-weight:700;">未接続：firebase-config.js に設定を入力してください</div>
     <div class="hint" id="stockCount">現在のストック：0件</div>
-    <div class="hint">投稿は <code>post.html</code>（視聴者用ページ）から届きます。色（金/銀/銅）は投稿時に視聴者自身が選びます。最大50件・古い順に自動削除・抽選結果の反映は管理画面(admin.html)が行います。</div>
+    <div class="hint">投稿は <code>post.html</code>（視聴者用ページ）から届きます。色（金/銀/銅）は投稿時に視聴者自身が選びます。抽選（drawn更新）はこの画面から行い、最大50件超過分の自動削除・投稿削除は管理画面(admin.html)が行います。</div>
   </section>
 
   <section>
@@ -342,7 +342,7 @@ body.show-grid{
   </section>
 
   <section>
-    <button id="drawBtn">▶ 直近の抽選結果を再生（プレビュー用）</button>
+    <button id="drawBtn">▶ ガチャを引く（本体クリックと同じ・2回押す）</button>
     <div style="height:8px;"></div>
     <button id="resetBtn" class="secondary">🔄 リセットは admin.html から</button>
   </section>
@@ -392,13 +392,14 @@ body.show-grid{
      各投稿は視聴者が投稿画面(post.html)で選んだ色(gold/silver/bronze)を
      持っており、その色のままカプセルとして本体に反映される。
 
-     抽選の実行(drawn:trueへの更新)は管理画面(admin.html・Firebase Auth
-     ログイン済みの管理者のみ)から行う。この画面(index.html)は非ログインで
-     動作するため、Firestoreへの書き込み権限は一切持たない（読み取り専用）。
-     管理画面が抽選を実行すると gacha_state/latest_draw ドキュメントが
-     更新されるので、それをリアルタイム購読して演出(Sequencer.play)を
-     再生する。50件超過分のFIFO削除・投稿削除・レイアウト/画像設定の保存も
-     同様に管理画面側の責務。 */
+     抽選(drawn:trueへの更新)はこの画面(index.html)自身が行う。本体を
+     1回クリックすると中央に大きく表示され（まだ抽選しない）、その状態で
+     もう一度クリックすると実際に抽選してFirestoreを更新し、演出が始まる。
+     抽選結果は gacha_state/latest_draw にも記録し、管理画面(admin.html)
+     から直近の抽選内容を確認できるようにしている。
+     投稿の削除・50件超過分のFIFO削除・レイアウト/画像設定の保存・配信画面の
+     リセットは、Firebase Authでログインした管理者のみが管理画面(admin.html)
+     から行う（この画面には削除権限がない）。 */
   const COLOR_HEX = { gold: '#FFC64B', silver: '#C9D2DE', bronze: '#C97A3F' };
   const COLOR_LABEL = { gold: '金', silver: '銀', bronze: '銅' };
 
@@ -408,8 +409,10 @@ body.show-grid{
 
     async init(){
       try {
-        const { db, collection, query, where, orderBy, onSnapshot, doc }
+        const { db, collection, query, where, orderBy, onSnapshot, doc, updateDoc, setDoc, serverTimestamp }
           = await import('./firebase-config.js');
+        this._db = db; this._doc = doc; this._updateDoc = updateDoc;
+        this._setDoc = setDoc; this._serverTimestamp = serverTimestamp;
 
         const q = query(collection(db, 'gacha_posts'), where('drawn', '==', false), orderBy('createdAt', 'asc'));
         onSnapshot(q, (snap) => this._onSnapshot(snap), (err) => {
@@ -417,9 +420,8 @@ body.show-grid{
           setConnState(false, '接続エラー：firebase-config.js の設定を確認してください');
         });
         this.connected = true;
-        setConnState(true, 'Firebaseに接続しました（読み取り専用）');
+        setConnState(true, 'Firebaseに接続しました');
 
-        DrawEvents.init(db, doc, onSnapshot);
         StageEvents.init(db, doc, onSnapshot);
         SettingsSync.init(db, doc, onSnapshot);
       } catch (err) {
@@ -444,28 +446,30 @@ body.show-grid{
       // ※ 50件超過分のFIFO削除・投稿削除はこの画面には削除権限がないため行わない。
       //    管理画面(admin.html)側が開いている間に自動整理される。
       updateStockCountLabel(this.posts.size);
-    }
-  };
+    },
 
-  /* ------------------------- DrawEvents -------------------------
-     管理画面(admin.html)が抽選を実行すると gacha_state/latest_draw が
-     更新される。それをリアルタイム購読し、該当の投稿内容で演出を再生する。
-     初回スナップショット（起動時に既にある古い抽選結果）では再生しない。 */
-  const DrawEvents = {
-    lastKey: null,
-    lastPost: null,
-    initialized: false,
-    init(db, doc, onSnapshot){
-      onSnapshot(doc(db, 'gacha_state', 'latest_draw'), (snap) => {
-        if (!snap.exists()) { this.initialized = true; return; }
-        const data = snap.data();
-        const key = `${data.postId || ''}_${data.drawnAt?.toMillis?.() ?? ''}`;
-        this.lastPost = { text: data.text, color: data.color };
-        if (!this.initialized){ this.initialized = true; this.lastKey = key; return; }
-        if (key === this.lastKey) return;
-        this.lastKey = key;
-        Sequencer.play(this.lastPost);
-      }, (err) => console.error(err));
+    // ランダムに1件選び、Firestore側を drawn:true に更新する。
+    // 更新できるのは「drawnをfalse→trueにするだけ」に限定されたルールなので、
+    // ログインしていないこの画面からでも安全に実行できる。
+    async drawOne(){
+      if (this.posts.size === 0) return null;
+      const ids = [...this.posts.keys()];
+      const id = ids[Math.floor(Math.random() * ids.length)];
+      const post = this.posts.get(id);
+      try {
+        await this._updateDoc(this._doc(this._db, 'gacha_posts', id), { drawn: true });
+      } catch (err){
+        console.error(err);
+        toast('抽選結果の更新に失敗しました（接続を確認してください）');
+        return null;
+      }
+      // 管理画面が直近の抽選結果を確認できるよう記録する（失敗しても抽選自体は継続する）
+      try {
+        await this._setDoc(this._doc(this._db, 'gacha_state', 'latest_draw'), {
+          postId: id, text: post.text, color: post.color, drawnAt: this._serverTimestamp()
+        });
+      } catch (err2) { console.warn(err2); }
+      return post; // {id, text, color}
     }
   };
 
@@ -734,6 +738,7 @@ body.show-grid{
   /* ------------------------- GachaMachine ------------------------- */
   const GachaMachine = {
     isPlaying: false,
+    armed: false, // 1回目のクリックで中央に大きく表示され、確定待ちの状態
     async goCenter(){
       // #machine の拡大トランジション(width 0.9s)＋着地バウンス(0.55s)の間、
       // カプセルのサイズ・位置をエリアの実寸に追従させ続ける。
@@ -857,12 +862,20 @@ body.show-grid{
 
   /* ------------------------- Sequencer ------------------------- */
   const Sequencer = {
-    async play(post){
+    // 呼び出される時点で本体は既に中央に大きく表示されている
+    // （1回目のクリック＝armMachineで拡大済み）。ここでは実際の抽選と
+    // 排出〜開封〜紙の表示までを行う。
+    async play(){
       if (GachaMachine.isPlaying) return;
-      if (!post){ toast('抽選は管理画面(admin.html)から実行してください'); return; }
       GachaMachine.isPlaying = true;
 
-      await GachaMachine.goCenter();
+      const post = await FirestoreSync.drawOne();
+      if (!post){
+        toast('ストックが空です（投稿が届くとカプセルが増えます）');
+        GachaMachine.isPlaying = false;
+        GachaMachine.goIdle();
+        return;
+      }
 
       handleEl.classList.add('spinning');
       await wait(560 * 4);
@@ -909,13 +922,36 @@ body.show-grid{
   };
 
   /* ------------------------- 入力イベント -------------------------
-     抽選の実行・配信画面のリセットは管理画面(admin.html)からのみ行う
-     設計のため、本体クリックや設定パネルのボタンでは実行しない。
-     （本体クリックは演出のプレビュー用に、直近の抽選結果があれば
-     　同じ内容で再生できるようにしてある＝Firestoreへの書き込みは発生しない） */
-  machineEl.addEventListener('click', () => Sequencer.play(DrawEvents.lastPost));
-  machineEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); Sequencer.play(DrawEvents.lastPost); } });
-  $('#drawBtn').addEventListener('click', () => Sequencer.play(DrawEvents.lastPost));
+     本体クリックは2段階：
+     1回目のクリック：中央に大きく表示（まだ抽選しない／取り消し可能）
+     2回目のクリック：実際に抽選を実行し、演出（排出〜開封〜紙）を再生する
+     大きく表示されている間に本体以外をクリックすると、抽選せずに元の
+     小さい表示へキャンセルできる。 */
+  async function armMachine(){
+    if (GachaMachine.isPlaying || GachaMachine.armed) return;
+    GachaMachine.armed = true;
+    await GachaMachine.goCenter();
+    toast('もう一度クリックすると抽選します（本体以外をクリックでキャンセル）');
+  }
+  function cancelArm(){
+    if (GachaMachine.isPlaying || !GachaMachine.armed) return;
+    GachaMachine.armed = false;
+    GachaMachine.goIdle();
+  }
+  async function handleMachineActivate(){
+    if (GachaMachine.isPlaying) return;
+    if (!GachaMachine.armed){
+      await armMachine();
+    } else {
+      GachaMachine.armed = false;
+      await Sequencer.play();
+    }
+  }
+
+  machineEl.addEventListener('click', (e) => { e.stopPropagation(); handleMachineActivate(); });
+  machineEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); handleMachineActivate(); } });
+  stage.addEventListener('click', () => cancelArm());
+  $('#drawBtn').addEventListener('click', () => handleMachineActivate());
   $('#resetBtn').addEventListener('click', () => { toast('リセットは管理画面(admin.html)から実行してください'); });
 
   $('#speedRange').addEventListener('input', (e) => {

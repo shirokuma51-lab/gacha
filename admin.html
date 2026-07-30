@@ -212,8 +212,13 @@ input[type="range"]{ width:100%; }
 
     <div class="card">
       <h2>ガチャ操作</h2>
-      <p class="desc">抽選の実行と配信画面のリセットは、ここからのみ行えます（配信画面側には権限がありません）。</p>
-      <button id="drawBtn" class="action-btn primary">🎰 抽選を実行する</button>
+      <p class="desc">抽選は配信画面(index.html)の本体を2回クリック（1回目で拡大、2回目で確定）して実行します。ここでは直近の抽選結果の確認と、配信画面のリセットのみ行えます。</p>
+      <div class="stat-row" style="margin-bottom:12px;">
+        <div class="stat" style="text-align:left;">
+          <div class="label">直近の抽選結果</div>
+          <div id="lastDrawInfo" style="font-size:13px; margin-top:4px; color:#EDE7FA;">まだありません</div>
+        </div>
+      </div>
       <button id="resetStageBtn" class="action-btn secondary">🔄 配信画面をリセット（紙を全削除）</button>
     </div>
 
@@ -410,7 +415,7 @@ input[type="range"]{ width:100%; }
     dashboardStarted = true;
 
     const { db, collection, query, where, orderBy, onSnapshot, doc, setDoc, getDoc,
-            updateDoc, deleteDoc, addDoc, serverTimestamp, writeBatch } = fb;
+            deleteDoc, addDoc, serverTimestamp } = fb;
 
     /* ---------- 投稿一覧の購読 ---------- */
     const q = query(collection(db, 'gacha_posts'), where('drawn', '==', false), orderBy('createdAt', 'asc'));
@@ -470,28 +475,15 @@ input[type="range"]{ width:100%; }
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
-    /* ---------- 抽選を実行 ---------- */
-    $('#drawBtn').addEventListener('click', async () => {
-      if (pendingPosts.length === 0){ toast('ストックが空です', true); return; }
-      $('#drawBtn').disabled = true;
-      try {
-        const idx = Math.floor(Math.random() * pendingPosts.length);
-        const picked = pendingPosts[idx];
-        const batch = writeBatch(db);
-        batch.update(doc(db, 'gacha_posts', picked.id), { drawn: true });
-        batch.set(doc(db, 'gacha_state', 'latest_draw'), {
-          postId: picked.id, text: picked.text, color: picked.color,
-          drawnAt: serverTimestamp(), triggeredBy: fb.auth.currentUser?.email || null
-        });
-        await batch.commit();
-        toast('抽選を実行しました。配信画面で演出が再生されます');
-      } catch (e) {
-        console.error(e);
-        toast('抽選の実行に失敗しました', true);
-      } finally {
-        $('#drawBtn').disabled = false;
-      }
-    });
+    /* ---------- 直近の抽選結果（配信画面が書き込む。ここでは表示のみ） ---------- */
+    onSnapshot(doc(db, 'gacha_state', 'latest_draw'), (snap) => {
+      if (!snap.exists()) return;
+      const v = snap.data();
+      const label = { gold:'金', silver:'銀', bronze:'銅' };
+      const t = v.drawnAt?.toDate ? v.drawnAt.toDate() : null;
+      const timeStr = t ? `${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}` : '';
+      $('#lastDrawInfo').textContent = `【${label[v.color] || ''}】${v.text}${timeStr ? '　(' + timeStr + ')' : ''}`;
+    }, (err) => console.error(err));
 
     /* ---------- 配信画面のリセット ---------- */
     $('#resetStageBtn').addEventListener('click', async () => {
