@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ガチャに投稿する</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --pink:#FF4D8D; --gold:#FFC64B; --cyan:#4DE8FF;
+  --ink:#2B2138; --bg:#1B1330; --card:#241B3A; --card-line:rgba(255,255,255,0.10);
+  --font-display:'Zen Maru Gothic', sans-serif; --font-ui:'Zen Kaku Gothic New', sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{ margin:0; padding:0; min-height:100%; font-family:var(--font-ui); }
+body{
+  background: radial-gradient(circle at 50% -10%, #3a2a5c, var(--bg) 60%);
+  display:flex; align-items:center; justify-content:center; padding:24px 16px;
+  color:#fff;
+}
+.card{
+  width:100%; max-width:420px; background:var(--card); border:1px solid var(--card-line);
+  border-radius:20px; padding:26px 22px 24px; box-shadow:0 24px 60px rgba(0,0,0,0.45);
+}
+h1{ font-family:var(--font-display); font-size:22px; margin:0 0 6px; text-align:center; }
+.sub{ font-size:13px; color:#C6BCE0; text-align:center; margin:0 0 22px; line-height:1.6; }
+label{ display:block; font-size:12px; font-weight:700; color:#EDE7FA; margin-bottom:8px; }
+textarea{
+  width:100%; min-height:88px; resize:vertical; background:#1D1533; color:#fff;
+  border:1px solid var(--card-line); border-radius:12px; padding:12px 14px;
+  font-family:var(--font-ui); font-size:15px; line-height:1.5;
+}
+textarea:focus{ outline:2px solid var(--cyan); }
+.counter{ text-align:right; font-size:11px; color:#8f84ad; margin:6px 2px 20px; }
+
+.colors{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:22px; }
+.color-btn{
+  position:relative; border:2px solid transparent; border-radius:14px; padding:14px 6px 10px;
+  background:#1D1533; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:8px;
+  transition: transform .15s, border-color .15s, background .15s;
+}
+.color-btn .swatch{
+  width:38px; height:38px; border-radius:50%;
+  box-shadow: inset -4px -5px 0 rgba(0,0,0,0.18), inset 3px 3px 0 rgba(255,255,255,0.4), 0 2px 6px rgba(0,0,0,0.35);
+}
+.color-btn[data-color="gold"] .swatch{ background: radial-gradient(circle at 35% 30%, #FFF3C4, #FFC64B 55%, #C98A12 100%); }
+.color-btn[data-color="silver"] .swatch{ background: radial-gradient(circle at 35% 30%, #FFFFFF, #C9D2DE 55%, #8B94A6 100%); }
+.color-btn[data-color="bronze"] .swatch{ background: radial-gradient(circle at 35% 30%, #F6D2A6, #C97A3F 55%, #7A4520 100%); }
+.color-btn span.label{ font-size:12px; font-weight:700; color:#EDE7FA; }
+.color-btn:hover{ background:#251A40; }
+.color-btn.selected{ border-color: var(--pink); background:#2B1E4A; transform:translateY(-2px); }
+
+button#submitBtn{
+  width:100%; background:var(--pink); color:#fff; border:none; border-radius:12px;
+  padding:14px; font-size:15px; font-weight:700; font-family:var(--font-display);
+  cursor:pointer; transition: opacity .15s, transform .1s;
+}
+button#submitBtn:disabled{ opacity:0.45; cursor:not-allowed; }
+button#submitBtn:not(:disabled):active{ transform:scale(0.98); }
+
+#msg{ text-align:center; font-size:13px; margin-top:14px; min-height:18px; }
+#msg.ok{ color:#7CFF8F; }
+#msg.err{ color:#FFB3B3; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>ガチャに投稿する</h1>
+  <p class="sub">内容を入力して、引きたいカプセルの色を選んで送信してください。<br>ログイン不要・匿名で参加できます。</p>
+
+  <label for="text">投稿内容</label>
+  <textarea id="text" maxlength="60" placeholder="例）高音チャレンジで熱唱"></textarea>
+  <div class="counter"><span id="count">0</span>/60</div>
+
+  <label>カプセルの色を選ぶ</label>
+  <div class="colors">
+    <button type="button" class="color-btn" data-color="gold"><span class="swatch"></span><span class="label">金</span></button>
+    <button type="button" class="color-btn" data-color="silver"><span class="swatch"></span><span class="label">銀</span></button>
+    <button type="button" class="color-btn" data-color="bronze"><span class="swatch"></span><span class="label">銅</span></button>
+  </div>
+
+  <button id="submitBtn">ガチャに投稿する</button>
+  <div id="msg"></div>
+</div>
+
+<script type="module">
+  const $ = (s) => document.querySelector(s);
+  const textEl = $('#text');
+  const countEl = $('#count');
+  const msgEl = $('#msg');
+  const submitBtn = $('#submitBtn');
+  let selectedColor = null;
+
+  textEl.addEventListener('input', () => { countEl.textContent = textEl.value.length; });
+
+  document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedColor = btn.dataset.color;
+    });
+  });
+
+  function showMsg(text, ok){
+    msgEl.textContent = text;
+    msgEl.className = ok ? 'ok' : 'err';
+  }
+
+  let db, collection, addDoc, serverTimestamp;
+  (async () => {
+    try {
+      const mod = await import('./firebase-config.js');
+      ({ db, collection, addDoc, serverTimestamp } = mod);
+    } catch (e) {
+      console.error(e);
+      showMsg('接続エラー：管理者に確認してください', false);
+      submitBtn.disabled = true;
+    }
+  })();
+
+  submitBtn.addEventListener('click', async () => {
+    const text = textEl.value.trim();
+    if (!text){ showMsg('内容を入力してください', false); return; }
+    if (!selectedColor){ showMsg('カプセルの色を選んでください', false); return; }
+    if (!db){ showMsg('接続中です。少し待ってから再度お試しください', false); return; }
+
+    submitBtn.disabled = true;
+    showMsg('送信中…', true);
+    try {
+      await addDoc(collection(db, 'gacha_posts'), {
+        text,
+        color: selectedColor,
+        drawn: false,
+        createdAt: serverTimestamp()
+      });
+      showMsg('投稿しました！ガチャに反映されます 🎉', true);
+      textEl.value = '';
+      countEl.textContent = '0';
+      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+      selectedColor = null;
+    } catch (e) {
+      console.error(e);
+      showMsg('送信に失敗しました。時間をおいて再度お試しください', false);
+    } finally {
+      setTimeout(() => { submitBtn.disabled = false; }, 1500); // 連投防止の簡易クールダウン
+    }
+  });
+</script>
+</body>
+</html>

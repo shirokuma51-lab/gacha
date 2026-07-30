@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// ============================================================================
+// firestore.rules
+// ----------------------------------------------------------------------------
+// 【重要・現状の制限について】
+// このシステムはまだ「管理画面（Firebase Authでログインした管理者専用）」を
+// 実装していません。そのため、現段階では「抽選結果の反映(drawn更新)」も
+// 配信画面(index.html)自身が誰でも実行できる形になっており、下記ルールは
+// それに合わせた“開発中の暫定ルール”です。
+//
+// 管理画面を実装したら、以下のように締める想定です：
+//   - update / delete は request.auth != null （管理者ログイン済み）のみ許可
+//   - create（投稿）は今のまま誰でも可能のまま維持（視聴者はログイン不要のため）
+//
+// Firebaseコンソール → Firestore Database → ルール タブに、このファイルの
+// 内容を貼り付けてください。
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /gacha_posts/{postId} {
+
+      // 読み取り：配信画面がカプセルの中身を表示するために必要。誰でも閲覧可。
+      allow read: if true;
+
+      // 作成：視聴者の投稿（ログイン不要）。項目の型と値を検証する。
+      allow create: if
+        request.resource.data.keys().hasOnly(['text', 'color', 'createdAt', 'drawn']) &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 60 &&
+        request.resource.data.color in ['gold', 'silver', 'bronze'] &&
+        request.resource.data.drawn == false;
+
+      // 更新：本来は管理者のみに絞るべき項目。現状は暫定的に drawn への
+      // 変更のみ許可（他のフィールドは書き換え不可）。
+      allow update: if
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['drawn']) &&
+        request.resource.data.drawn == true;
+
+      // 削除：50件超過分のFIFOクリーンアップ用（暫定・誰でも可）。
+      // 本来はCloud Functionsか管理者操作に置き換えるのが望ましい。
+      allow delete: if true;
+    }
+  }
+}
