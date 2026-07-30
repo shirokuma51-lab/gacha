@@ -43,6 +43,11 @@ body.show-grid{
   background-color:#12141a;
 }
 
+body.obs-mode{
+  background: transparent !important;
+  background-image: none !important;
+}
+
 #stage{ position:relative; width:100%; height:100%; }
 
 /* ---------------- ガチャ本体 ---------------- */
@@ -337,7 +342,7 @@ body.show-grid{
   </section>
 
   <section>
-    <div class="row"><span>透過確認グリッド表示</span><input type="checkbox" id="gridToggle"></div>
+    <div class="row"><span>透過確認グリッド表示</span><input type="checkbox" id="gridToggle" checked></div>
     <div class="hint">OBSでは常に透過表示されるため、このグリッドは映りません。</div>
   </section>
 
