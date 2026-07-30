@@ -33,8 +33,14 @@ html,body{
 }
 
 body.show-grid{
-  background-image: none;
-  background-color: transparent;
+  background-image:
+    linear-gradient(45deg, #00000014 25%, transparent 25%),
+    linear-gradient(-45deg, #00000014 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #00000014 75%),
+    linear-gradient(-45deg, transparent 75%, #00000014 75%);
+  background-size: 28px 28px;
+  background-position: 0 0, 0 14px, 14px -14px, -14px 0px;
+  background-color:#12141a;
 }
 
 #stage{ position:relative; width:100%; height:100%; }
@@ -271,7 +277,7 @@ body.show-grid{
 }
 </style>
 </head>
-<body class="show-grid">
+<body>
 <div id="stage">
 
   <div id="machine" role="button" tabindex="0" aria-label="ガチャを回す">
@@ -332,7 +338,7 @@ body.show-grid{
 
   <section>
     <div class="row"><span>透過確認グリッド表示</span><input type="checkbox" id="gridToggle"></div>
-    <div class="hint">OBSでは常に透過表示されるため、このグリッドは映りません。</div>
+    <div class="hint">背景の透過位置を確認するための補助グリッドです。OBSのブラウザソースもこの画面の見た目をそのまま映すため、<b>グリッドを表示したままOBSに設定すると、そのままグリッド柄が配信に映り込みます。</b>普段のブラウザタブで確認するときだけ一時的にONにし、OBSに設定する前に必ずOFFに戻してください（初期状態はOFFです）。</div>
   </section>
 
   <section>
