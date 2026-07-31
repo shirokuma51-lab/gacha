@@ -642,7 +642,7 @@ body.show-grid{
     },
     /* ガチャ演出中に本体を揺すって、積もったカプセルをリアルに転がす */
     jostle(power = 1){
-      this.balls.forEach(b => { b.vx += (Math.random() - 0.5) * 7 * power; b.vy -= Math.random() * 4 * power; });
+      this.balls.forEach(b => { b.vx += (Math.random() - 0.5) * 7 * power; b.vy -= Math.random() * 4 * power; b.resting = false; });
       this.ensureRunning();
     },
     ensureRunning(){
@@ -683,21 +683,34 @@ body.show-grid{
         }
       }
 
+      // 静止判定のしきい値は「半径に対する割合」で決める（固定pxにしない）。
+      // 本体が小さく表示されている時はカプセルの半径も小さくなるため、
+      // 固定pxのしきい値のままだと相対的に大きな揺れとして残ってしまい、
+      // 「小さい時だけ細かくブルブル震える」ように見えてしまうのを防ぐ。
+      const restEps = Math.max(0.08, currentR * 0.045);   // これ未満の速度になったら完全静止させる
+      const sleepEps = Math.max(0.015, currentR * 0.01);  // ループ全体を止めるかどうかの全体しきい値
+
       const balls = [...this.balls.values()];
       for (const b of balls){
+        if (b.resting) continue; // 完全に静止している玉は重力計算そのものをスキップ（震え防止）
         b.vy += this.GRAVITY;                 // 重力
         b.x += b.vx; b.y += b.vy;
         if (b.x - b.r < 0){ b.x = b.r; b.vx *= -this.BOUNCE; }
         if (b.x + b.r > W){ b.x = W - b.r; b.vx *= -this.BOUNCE; }
         if (b.y + b.r > H){                     // 床との反発
           b.y = H - b.r; b.vy *= -this.BOUNCE; b.vx *= this.FRICTION;
-          if (Math.abs(b.vy) < 0.35) b.vy = 0;
+          if (Math.abs(b.vy) < restEps && Math.abs(b.vx) < restEps){
+            b.vx = 0; b.vy = 0; b.resting = true; // 速度が十分小さくなったら完全停止させる
+          }
         }
       }
       // 玉同士の衝突解決（総当たり。個数が少ないため十分軽量＝OBS負荷も低い）
+      // 両方とも静止済みの組み合わせは計算そのものをスキップする：
+      // 衝突解決による極小の補正が毎フレーム発生し続けることが、震えのもう一つの原因だった。
       for (let i = 0; i < balls.length; i++){
         for (let j = i + 1; j < balls.length; j++){
           const a = balls[i], c = balls[j];
+          if (a.resting && c.resting) continue;
           const dx = c.x - a.x, dy = c.y - a.y;
           const dist = Math.hypot(dx, dy) || 0.001;
           const minDist = a.r + c.r;
@@ -711,12 +724,14 @@ body.show-grid{
               a.vx += nx * rel * 0.5; a.vy += ny * rel * 0.5;
               c.vx -= nx * rel * 0.5; c.vy -= ny * rel * 0.5;
             }
+            // 押し合いが実際に発生したので、静止していた側も起こして次フレームから再計算させる
+            a.resting = false; c.resting = false;
           }
         }
       }
       let maxSpeed = 0;
       for (const b of balls){
-        b.vx *= this.FRICTION;
+        if (!b.resting) b.vx *= this.FRICTION;
         // 衝突判定自体は共通サイズ(r)のまま平面(x,y)で行い、描画だけを奥行き(z)分
         // 縮小・斜めにずらす（前後にも積み重なって見える立体感を出す）。
         const scale = 1 - b.z * (1 - this.DEPTH_SCALE_MIN);
@@ -725,9 +740,9 @@ body.show-grid{
         b.el.style.transform = `translate(${b.x - b.r + dx}px, ${b.y - b.r + dy}px) scale(${scale})`;
         b.el.style.zIndex = String(Math.round((1 - b.z) * 1000)); // 手前(z小)ほど前面に描画→確実に見える
         b.el.style.opacity = String(1 - b.z * 0.10);
-        maxSpeed = Math.max(maxSpeed, Math.abs(b.vx), Math.abs(b.vy));
+        if (!b.resting) maxSpeed = Math.max(maxSpeed, Math.abs(b.vx), Math.abs(b.vy));
       }
-      if (maxSpeed > 0.06 || performance.now() < this.forceUntil){
+      if (maxSpeed > sleepEps || performance.now() < this.forceUntil){
         requestAnimationFrame(() => this.step());
       } else {
         this.running = false; // 静止し、本体も拡大/縮小中でなければ計算を止めてCPU負荷を抑える
